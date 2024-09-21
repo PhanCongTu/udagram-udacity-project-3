@@ -1,0 +1,67 @@
+version: 2.1
+
+jobs:
+  build:
+    docker:
+      - image: circleci/node:14-browsers
+    steps:
+      - checkout     
+
+      # Set up Docker
+      - setup_remote_docker:
+          # version: 20.10.7 (remove this version to Set up Docker with newer version.)
+          version: 20.10.24
+
+      # Troubleshoot notsup Unsupported platform for fsevents@2.3.2: wanted {"os":"darwin"}        
+      # Step 1: Delete package-lock.json file
+      - run:
+          name: Remove package-lock.json
+          command: |
+            rm -f udagram-frontend/package-lock.json
+
+      # Step 2: Remove fsevents line from package.json
+      - run:
+          name: Remove fsevents from package.json
+          command: |
+            sed -i '/"fsevents":/d' udagram-frontend/package.json
+
+      # Step 3: Install dependencies and create new package-lock.json file
+      - run:
+          name: Install dependencies and recreate package-lock.json
+          command: |
+            cd udagram-frontend && npm install --legacy-peer-deps            
+
+      # Build Docker images for each service      
+      - run:
+          name: Build Docker images
+          command: |
+            docker build -t $DOCKER_USERNAME/udagram-api-feed:v1 ./udagram-api-feed
+            docker build -t $DOCKER_USERNAME/udagram-api-user:v1 ./udagram-api-user
+            docker build -t $DOCKER_USERNAME/reverseproxy:v1 ./udagram-reverseproxy
+            docker build -t $DOCKER_USERNAME/udagram-frontend:v1 ./udagram-frontend      # Ensure to update the tag (e.g., v1 to v2) to trigger Kubernetes to pull the new image version 
+            
+
+      # Check image after build is complete
+      - run:
+          name: List Docker images
+          command: docker images
+
+      # Log into DockerHub using information from environment variable
+      - run:
+          name: Log in to DockerHub
+          command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+
+      # Push Docker images to DockerHub
+      - run:
+          name: Push Docker images
+          command: |
+            docker push $DOCKER_USERNAME/udagram-api-feed:v1
+            docker push $DOCKER_USERNAME/udagram-api-user:v1
+            docker push $DOCKER_USERNAME/reverseproxy:v1
+            docker push $DOCKER_USERNAME/udagram-frontend:v1                 # Ensure to update the tag (e.g., v1 to v2) to trigger Kubernetes to pull the new image version
+
+workflows:
+  version: 2
+  build_and_push:
+    jobs:
+      - build
